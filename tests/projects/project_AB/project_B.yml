@@ -9,8 +9,8 @@ changes:
       - 123
 - roadway_addition:
     links:
-    - A: 1003
-      B: 1004
+    - A: 1001
+      B: 1002
       model_link_id: 502
       distance: 0.25
       name: Broad Street
@@ -26,11 +26,11 @@ changes:
       drive_node: 1
       transit_node: 0
       walk_node: 0
-      model_node_id: 1003
+      model_node_id: 1001
     - X: -93.3333
       Y: 44.2222
       bike_node: 0
       drive_node: 1
       transit_node: 0
       walk_node: 0
-      model_node_id: 1004
+      model_node_id: 1002

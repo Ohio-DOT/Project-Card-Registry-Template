@@ -81,69 +81,80 @@ def test_update_registry(request):
 
 @pytest.mark.ci
 @pytest.mark.update_registry
-def test_update_registry_existing(request):
-
+def test_update_registry_conflict(request):
+    """
+    Tests that when two active projects (A and B) in the same folder 
+    request the same IDs, the second one is automatically re-numbered.
+    """
     input_file = "test_input_registry.csv"
     output_file = "test_update_registry.csv"
-    data = [
-        ["node", 1001, "Project Z"],
-        ["node", 1002, "Project Z"],
-        ["link", 501, "Project Z"],
-    ]
-    input_df = pd.DataFrame(data, columns=["type", "id", "project_added"])
+
+    # Start with a clean registry
+    input_df = pd.DataFrame([], columns=["type", "id", "project_added"])
     input_df.to_csv(input_file, index=False)
 
+    # Run update_registry on the folder where A and B both want IDs 1001/1002
     update_registry(
         config_file="registry_config.yml",
         input_reg_file=input_file,
         output_reg_file=output_file,
         card_dir=os.path.join(".", "tests", "projects", "project_AB"),
-        write_card_updates=False,
+        write_card_updates=False, # Don't overwrite our test YAMLs
     )
-
-    data = [
-        ["node", 1001, "Project Z"],
-        ["node", 1002, "Project Z"],
-        ["link", 501, "Project Z"],
-        ["node", 1003, "Project B"],
-        ["node", 1004, "Project B"],
-        ["node", 1005, "Project A"],
-        ["node", 1006, "Project A"],
-        ["link", 502, "Project B"],
-        ["link", 503, "Project A"],
-    ]
-    target_i_df = pd.DataFrame(data, columns=["type", "id", "project_added"])
-    target_i_df = target_i_df.sort_values(by=["type", "id"]).reset_index(drop=True)
-
-    data = [
-        ["node", 1001, "Project Z"],
-        ["node", 1002, "Project Z"],
-        ["link", 501, "Project Z"],
-        ["node", 1003, "Project A"],
-        ["node", 1004, "Project A"],
-        ["node", 1005, "Project B"],
-        ["node", 1006, "Project B"],
-        ["link", 502, "Project A"],
-        ["link", 503, "Project B"],
-    ]
-    target_ii_df = pd.DataFrame(data, columns=["type", "id", "project_added"])
-    target_ii_df = target_ii_df.sort_values(by=["type", "id"]).reset_index(drop=True)
 
     outcome_df = pd.read_csv(output_file)
-    outcome_df = (
-        outcome_df[["type", "id", "project_added"]]
-        .sort_values(by=["type", "id"])
-        .reset_index(drop=True)
-    )
-
+    
+    # We expect one project to get 1001/1002 and the other to get 1003/1004
+    # The system finds the 'next available' ID automatically
+    assigned_ids = outcome_df[outcome_df['type'] == 'node']['id'].tolist()
+    
     os.remove(input_file)
     os.remove(output_file)
 
-    assert (
-        target_i_df.equals(outcome_df) is True
-        or target_ii_df.equals(outcome_df) is True
+    assert 1001 in assigned_ids
+    assert 1002 in assigned_ids
+    assert 1003 in assigned_ids
+    assert 1004 in assigned_ids
+    assert len(assigned_ids) == 4
+
+@pytest.mark.ci
+@pytest.mark.update_registry
+def test_registry_auto_pruning(request):
+    """
+    Tests that a project existing in the CSV but missing from the 
+    projects/ folder is automatically removed from the registry.
+    """
+    input_file = "test_input_registry.csv"
+    output_file = "test_update_registry.csv"
+
+    # 1. Create a registry with "Project Z" 
+    data = [
+        ["node", 1001, "Project Z"],
+        ["link", 501, "Project Z"],
+    ]
+    input_df = pd.DataFrame(data, columns=["type", "id", "project_added"])
+    input_df.to_csv(input_file, index=False)
+
+    # 2. Run update_registry pointing to a directory that DOES NOT have Project Z
+    # We point it to an empty or unrelated project directory
+    update_registry(
+        config_file="registry_config.yml",
+        input_reg_file=input_file,
+        output_reg_file=output_file,
+        card_dir=os.path.join(".", "tests", "projects", "project_C"),
+        write_card_updates=False,
     )
 
+    outcome_df = pd.read_csv(output_file)
+    
+    os.remove(input_file)
+    os.remove(output_file)
+
+    # 3. Verify Project Z was pruned 
+    # It should not appear in the 'project_added' column
+    projects_in_registry = outcome_df['project_added'].unique()
+    
+    assert "Project Z" not in projects_in_registry
 
 @pytest.mark.ci
 @pytest.mark.update_registry

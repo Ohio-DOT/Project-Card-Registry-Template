@@ -1,0 +1,38 @@
+project: Project B
+tags:
+- registry_example
+dependencies: ''
+changes:
+- category: Roadway Deletion
+  links:
+    model_link_id:
+    - 123
+- category: Add New Roadway
+  links:
+  - A: 1001
+    B: 1002
+    model_link_id: 501
+    distance: 0.25
+    name: Broad Street
+    lanes: 2
+    bike_access: 1
+    drive_access: 1
+    transit_access: 0
+    walk_access: 1
+  nodes:
+  - X: -93.2222
+    Y: 44.1111
+    bike_node: 0
+    drive_node: 1
+    transit_node: 0
+    walk_node: 0
+    model_node_id: 1001
+  - X: -93.3333
+    Y: 44.2222
+    bike_node: 0
+    drive_node: 1
+    transit_node: 0
+    walk_node: 0
+    model_node_id: 1002
+file: ./projects/project_B.yml
+valid: false

@@ -1,0 +1,60 @@
+name: Validate Project Cards (PR)
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo content
+        uses: actions/checkout@v4
+
+      - name: Setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas pyyaml projectcard
+          pip install -e git+https://github.com/network-wrangler/network_wrangler.git@main#egg=network_wrangler
+
+      - name: Run Validation (Dry Run)
+        id: dry_run
+        run: |
+          # Run the script but tell it NOT to write updates
+          # Wrap this in a try-catch to capture the output for the PR comment
+          python -c "
+          import sys
+          from update_registry import update_registry
+          try:
+              update_registry(write_card_updates=False)
+              print('✅ SUCCESS: All project cards validated. No spatial or ID conflicts detected.')
+          except Exception as e:
+              print(f'❌ ERROR DETECTED:\n{str(e)}')
+              sys.exit(1)
+          " > validation_output.txt
+
+      - name: Comment PR with Report
+        uses: actions/github-script@v6
+        if: always() # Runs even if the previous step failed
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('validation_output.txt', 'utf8');
+            
+            const marker = "";
+            const body = `${marker}\n### 🚦 Project Card Validation Report\n\`\`\`text\n${output}\n\`\`\``;
+            
+            // Post the comment to the PR
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            })

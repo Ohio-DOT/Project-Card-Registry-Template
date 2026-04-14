@@ -29,9 +29,7 @@ def test_update_registry(request):
     input_file = "test_input_registry.csv"
     output_file = "test_update_registry.csv"
 
-    data = []
-    input_df = pd.DataFrame(data, columns=["type", "id", "project_added"])
-    input_df.to_csv(input_file, index=False)
+    pd.DataFrame([], columns=["type", "id", "project_added"]).to_csv(input_file, index=False)
 
     update_registry(
         config_file="registry_config.yml",
@@ -41,17 +39,7 @@ def test_update_registry(request):
         write_card_updates=False,
     )
 
-    data = [
-        ["node", 1001, "Project B"],
-        ["node", 1002, "Project B"],
-        ["node", 1003, "Project A"],
-        ["node", 1004, "Project A"],
-        ["link", 501, "Project B"],
-        ["link", 502, "Project A"],
-    ]
-    target_i_df = pd.DataFrame(data, columns=["type", "id", "project_added"])
-    target_i_df = target_i_df.sort_values(by=["type", "id"]).reset_index(drop=True)
-
+    # Alphabetical order: Project A gets 1001/1002/501; Project B gets 1003/1004/502
     data = [
         ["node", 1001, "Project A"],
         ["node", 1002, "Project A"],
@@ -60,23 +48,16 @@ def test_update_registry(request):
         ["link", 501, "Project A"],
         ["link", 502, "Project B"],
     ]
-    target_ii_df = pd.DataFrame(data, columns=["type", "id", "project_added"])
-    target_ii_df = target_ii_df.sort_values(by=["type", "id"]).reset_index(drop=True)
+    target_df = pd.DataFrame(data, columns=["type", "id", "project_added"])
+    target_df = target_df.sort_values(by=["type", "id"]).reset_index(drop=True)
 
     outcome_df = pd.read_csv(output_file)
-    outcome_df = (
-        outcome_df[["type", "id", "project_added"]]
-        .sort_values(by=["type", "id"])
-        .reset_index(drop=True)
-    )
+    outcome_df = outcome_df.sort_values(by=["type", "id"]).reset_index(drop=True)
 
     os.remove(input_file)
     os.remove(output_file)
 
-    assert (
-        target_i_df.equals(outcome_df) is True
-        or target_ii_df.equals(outcome_df) is True
-    )
+    assert target_df.equals(outcome_df)
 
 
 @pytest.mark.ci

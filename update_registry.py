@@ -23,6 +23,9 @@ def update_registry(
 
     # Read current project cards from the directory
     card_file_list = read_project_cards(card_dir)
+
+    # Sort cards by project name to ensure deterministic ID assignment
+    card_file_list.sort(key=lambda x: x[0].project.lower())
     
     # Identify active projects and prune deleted ones
     active_project_names = [card.project for card, _ in card_file_list]

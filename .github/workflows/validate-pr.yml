@@ -1,60 +1,69 @@
-name: Validate Project Cards (PR)
+name: Validate and Update Registry (PR)
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
-  validate:
+  validate_and_sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - name: Checkout repo content
+      - name: Checkout PR Branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
 
-      - name: Setup python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pandas pyyaml projectcard
           pip install -e git+https://github.com/network-wrangler/network_wrangler.git@main#egg=network_wrangler
 
-      - name: Run Validation (Dry Run)
-        id: dry_run
+      - name: Run Validation and Capture Output
+        id: validation
         run: |
-          # Run the script but tell it NOT to write updates
-          # Wrap this in a try-catch to capture the output for the PR comment
-          python -c "
-          import sys
-          from update_registry import update_registry
-          try:
-              update_registry(write_card_updates=False)
-              print('✅ SUCCESS: All project cards validated. No spatial or ID conflicts detected.')
-          except Exception as e:
-              print(f'❌ ERROR DETECTED:\n{str(e)}')
-              sys.exit(1)
-          " > validation_output.txt
+          # Capture script output to a file for the PR comment
+          # If update_registry.py raises a ValueError, this step fails
+          python update_registry.py > validation_report.txt 2>&1
+        continue-on-error: true
 
-      - name: Comment PR with Report
+      - name: Post PR Report
         uses: actions/github-script@v6
-        if: always() # Runs even if the previous step failed
         with:
-          github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('validation_output.txt', 'utf8');
+            const report = fs.readFileSync('validation_report.txt', 'utf8');
+            const success = "${{ steps.validation.outcome }}" === "success";
+            const icon = success ? "✅" : "❌";
+            const status = success ? "Passed" : "Failed";
             
-            const marker = "";
-            const body = `${marker}\n### 🚦 Project Card Validation Report\n\`\`\`text\n${output}\n\`\`\``;
-            
-            // Post the comment to the PR
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
-            })
+              body: `### 🚦 Project Card Validation ${status}\n${icon} **Outcome:** ${status}\n\n<details><summary>Click to view logs</summary>\n\n\`\`\`text\n${report}\n\`\`\`\n</details>`
+            });
+
+      - name: Commit Updated Registry
+        if: steps.validation.outcome == 'success'
+        run: |
+          git config --local user.email "github-actions[bot]"
+          git config --local user.name "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          # Only commits if registry.csv or projects/ changed
+          if ! git diff --quiet || ! git diff --staged --quiet; then
+            git commit -m "Automated registry sync for PR #${{ github.event.pull_request.number }}"
+            git push
+          fi
+
+      - name: Final Check
+        if: steps.validation.outcome != 'success'
+        run: exit 1

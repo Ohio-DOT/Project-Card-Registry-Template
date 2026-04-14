@@ -1,0 +1,24 @@
+name: Registry Check
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Run Validation
+        run: |
+          pip install pandas pyyaml projectcard
+          pip install -e git+https://github.com/network-wrangler/network_wrangler.git@main#egg=network_wrangler
+          # Run script with write_card_updates=False to ensure no changes are needed
+          python -c "from update_registry import update_registry; update_registry(write_card_updates=False)"

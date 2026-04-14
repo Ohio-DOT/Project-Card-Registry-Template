@@ -1,0 +1,32 @@
+project: Project Z
+tags:
+- registry_example
+dependencies: {}
+changes:
+- roadway_addition:
+    links:
+    - A: 1001
+      B: 1002
+      model_link_id: 501
+      distance: 0.25
+      name: Main Street
+      lanes: 2
+      bike_access: 1
+      drive_access: 1
+      transit_access: 0
+      walk_access: 1
+    nodes:
+    - X: -93.1111
+      Y: 44.8888
+      bike_node: 0
+      drive_node: 1
+      transit_node: 0
+      walk_node: 0
+      model_node_id: 1001
+    - X: -93.4444
+      Y: 44.5555
+      bike_node: 0
+      drive_node: 1
+      transit_node: 0
+      walk_node: 0
+      model_node_id: 1002

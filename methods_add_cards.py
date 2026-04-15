@@ -1,5 +1,3 @@
-from os import write
-from numpy import True_
 import pandas as pd
 from typing import Tuple
 
@@ -31,48 +29,123 @@ def add_cards_to_registry(
     links_in_use = _make_available("links", config)
     out_df = input_df
 
+    # Track ID changes across the entire batch
+    global_id_map = {"nodes": {}, "links": {}}
+
     for card, filename in card_file_list:
+        card_modified = False
+        
+        # 1. APPLY PREVIOUS REASSIGNMENTS
+        # Update any IDs in this card that were changed by a prerequisite project
+        card, was_updated = _apply_global_id_map(card, global_id_map)
+        card_modified = card_modified or was_updated
+
+        # 2. PROCESS CHANGES (All categories, not just roadway_addition )
         if card.project not in input_df["project_added"].values:
             for change_index, change_dict in enumerate(card.changes):
-                if "roadway_addition" in change_dict:
-                    if "nodes" in change_dict["roadway_addition"]:
-                        node_df, node_update, card = _update_registry(
-                            "nodes",
-                            out_df,
-                            card,
-                            change_index,
-                            nodes_in_use,
+                # Process additions and capture new reassignments
+                for cat in ["roadway_addition"]:
+                    if cat in change_dict:
+                        out_df, id_updates, card = _process_addition(
+                            cat, change_index, out_df, card, nodes_in_use, links_in_use, global_id_map
                         )
-                    else:
-                        node_df = None
-                        node_update = False
+                        card_modified = card_modified or id_updates
 
-                    link_df, link_update, card = _update_registry(
-                        "links",
-                        out_df,
-                        card,
-                        change_index,
-                        links_in_use,
-                    )
+                # Validate and sync IDs for modifications/deletions 
+                for cat in ["roadway_property_change", "roadway_deletion"]:
+                    if cat in change_dict:
+                        card, was_synced = _sync_modification_ids(change_dict[cat], global_id_map)
+                        card_modified = card_modified or was_synced
 
-                    if node_df is not None:
-                        out_df = pd.concat([out_df, node_df], ignore_index=True)
-
-                    out_df = (
-                        pd.concat([out_df, link_df], ignore_index=True)
-                        .drop_duplicates()
-                        .reset_index(drop=True)
-                    )
-
-                    if node_update or link_update:
-                        if write_to_disk:
-                            if "file" in card.__dict__:
-                                card.__dict__.pop("file")
-                            if "valid" in card.__dict__:
-                                card.__dict__.pop("valid")
-                            write_card(card, filename=Path(filename))
+        if card_modified and write_to_disk:
+            # Clean up metadata before writing
+            for key in ["file", "valid"]:
+                card.__dict__.pop(key, None)
+            write_card(card, filename=Path(filename))
 
     return out_df
+
+
+def _process_addition(category, change_index, out_df, card, nodes_in_use, links_in_use, global_id_map):
+    card_modified = False
+    
+    # Process Nodes
+    if "nodes" in card.changes[change_index][category]:
+        # Pass global_id_map as the 6th argument
+        node_df, node_update, card = _update_registry(
+            category, "nodes", out_df, card, change_index, nodes_in_use, global_id_map
+        )
+        if node_df is not None:
+            out_df = pd.concat([out_df, node_df], ignore_index=True)
+            card_modified = card_modified or node_update
+    
+    # Process Links
+    # Pass global_id_map as the 6th argument
+    link_df, link_update, card = _update_registry(
+        category, "links", out_df, card, change_index, links_in_use, global_id_map
+    )
+    if link_df is not None:
+        out_df = pd.concat([out_df, link_df], ignore_index=True).drop_duplicates().reset_index(drop=True)
+        card_modified = card_modified or link_update
+
+    return out_df, card_modified, card
+
+
+def _sync_modification_ids(change_content, global_id_map):
+    """
+    Updates IDs within modification or deletion dictionaries based on global reassignments.
+    """
+    was_synced = False
+    
+    # Sync Link IDs in modifications/deletions
+    if "links" in change_content:
+        # Check if it's a list (Add New Roadway style) or dict (Roadway Deletion style)
+        links = change_content["links"]
+        link_list = links if isinstance(links, list) else [links]
+        
+        for link in link_list:
+            if "model_link_id" in link:
+                # Handle single ID or list of IDs (common in deletions)
+                ids = link["model_link_id"]
+                if isinstance(ids, list):
+                    for i, lid in enumerate(ids):
+                        if lid in global_id_map["links"]:
+                            ids[i] = global_id_map["links"][lid]
+                            was_synced = True
+                elif ids in global_id_map["links"]:
+                    link["model_link_id"] = global_id_map["links"][ids]
+                    was_synced = True
+
+    # Sync Node IDs similarly
+    if "nodes" in change_content:
+        nodes = change_content["nodes"]
+        node_list = nodes if isinstance(nodes, list) else [nodes]
+        for node in node_list:
+            if "model_node_id" in node:
+                nid = node["model_node_id"]
+                if nid in global_id_map["nodes"]:
+                    node["model_node_id"] = global_id_map["nodes"][nid]
+                    was_synced = True
+
+    return was_synced
+
+
+def _apply_global_id_map(card, id_map):
+    """Updates all IDs in a card based on previous reassignments."""
+    updated = False
+    for change in card.changes:
+        for cat, content in change.items():
+            # Check nodes and links across all categories
+            if isinstance(content, dict):
+                for node_type in ["nodes", "links"]:
+                    if node_type in content:
+                        for item in content[node_type]:
+                            id_key = "model_node_id" if node_type == "nodes" else "model_link_id"
+                            old_id = item.get(id_key)
+                            if old_id in id_map[node_type]:
+                                item[id_key] = id_map[node_type][old_id]
+                                updated = True
+    return card, updated
 
 
 def _make_available(nodes_or_links: str, config: dict) -> list:
@@ -210,11 +283,13 @@ def _find_available_id(
 
 
 def _update_registry(
+    category: str,
     nodes_or_links: str,
     input_df: pd.DataFrame,
     card: ProjectCard,
     change_index: int,
     range_in_use: dict,
+    global_id_map: dict
 ) -> Tuple[pd.DataFrame, bool, dict]:
     """
     Updates node or link entries in the registry database
@@ -242,11 +317,12 @@ def _update_registry(
 
     subject_df = input_df[input_df["type"] == subject_word]
 
-    for subject_index, subject in enumerate(card.changes[change_index]["roadway_addition"][nodes_or_links]):
+    for subject_index, subject in enumerate(card.changes[change_index][category][nodes_or_links]):
         new_id = subject[subject_id_word]
 
         _is_id_in_allowable_range(subject_word, card.project, new_id, range_in_use)
         _is_id_used_in_base_network(subject_word, card.project, new_id, range_in_use)
+
         if new_id not in subject_df["id"].values:
             updates_df = pd.DataFrame(
                 {
@@ -264,15 +340,19 @@ def _update_registry(
                 range_in_use,
                 subject_df,
             )
-            card.changes[change_index]["roadway_addition"][nodes_or_links][subject_index][
-                subject_id_word
-            ] = number
+            
+            # Record the reassignment for other cards
+            global_id_map[nodes_or_links][new_id] = number 
+            
+            # Update current card
+            card.changes[change_index][category][nodes_or_links][subject_index][subject_id_word] = number
+            
             if nodes_or_links == "nodes":
-                for i in range(0, len(card.changes[change_index]["roadway_addition"]["links"])):
-                    if card.changes[change_index]["roadway_addition"]["links"][i]["A"] == new_id:
-                        card.changes[change_index]["roadway_addition"]["links"][i]["A"] = number
-                    if card.changes[change_index]["roadway_addition"]["links"][i]["B"] == new_id:
-                        card.changes[change_index]["roadway_addition"]["links"][i]["B"] = number
+                for i in range(0, len(card.changes[change_index][category]["links"])):
+                    if card.changes[change_index][category]["links"][i]["A"] == new_id:
+                        card.changes[change_index][category]["links"][i]["A"] = number
+                    if card.changes[change_index][category]["links"][i]["B"] == new_id:
+                        card.changes[change_index][category]["links"][i]["B"] = number
             updates_df = pd.DataFrame(
                 {
                     "type": subject_word,

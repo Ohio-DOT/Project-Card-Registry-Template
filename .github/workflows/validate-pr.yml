@@ -43,14 +43,26 @@ jobs:
             const report = fs.readFileSync('validation_report.txt', 'utf8');
             const success = "${{ steps.validation.outcome }}" === "success";
             const icon = success ? "✅" : "❌";
-            const status = success ? "Passed" : "Failed";
             
+            // Extract the summary section for prominence
+            const summaryMatch = report.match(/--- PROJECT REGISTRY SUMMARY ---[\s\S]*?--------------------------------/);
+            
+            let summary = "";
+            if (summaryMatch) {
+              summary = summaryMatch[0];
+            } else if (!success) {
+              summary = "⚠️ **FATAL ERROR DETECTED:** The system could not generate a project summary because the script failed early. This is usually caused by a **Circular Dependency**, a **YAML Formatting Error**, or a **Base Network ID Conflict**. Please expand the logs below to see the exact Python error.";
+            } else {
+              summary = "No summary generated.";
+            }
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `### 🚦 Project Card Validation ${status}\n${icon} **Outcome:** ${status}\n\n<details><summary>Click to view logs</summary>\n\n\`\`\`text\n${report}\n\`\`\`\n</details>`
+              body: `### 🚦 Network Registry Impact Report\n${icon} **Validation:** ${success ? "Passed" : "Failed"}\n\n**Proposed Changes / Status:**\n\`\`\`text\n${summary}\n\`\`\`\n\n<details><summary>View Full Technical Logs</summary>\n\n\`\`\`text\n${report}\n\`\`\`\n</details>`
             });
+            fs.unlinkSync('validation_report.txt');
 
       - name: Commit Updated Registry
         if: steps.validation.outcome == 'success'
@@ -58,6 +70,8 @@ jobs:
           git config --local user.email "github-actions[bot]"
           git config --local user.name "github-actions[bot]@users.noreply.github.com"
           git add -A
+          # Clean up the report file if it wasn't deleted by the script step
+          rm -f validation_report.txt
           # Only commits if registry.csv or projects/ changed
           if ! git diff --quiet || ! git diff --staged --quiet; then
             git commit -m "Automated registry sync for PR #${{ github.event.pull_request.number }}"

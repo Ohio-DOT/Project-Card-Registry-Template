@@ -100,8 +100,11 @@ def test_inter_card_id_reconciliation(tmp_path):
         "project: Project B\n"
         "dependencies: {prerequisites: ['Project A']}\n"
         "changes:\n"
-        "  - roadway_modification:\n"
-        "      nodes: [{model_node_id: 1001, drive_node: 0}]"
+        "  - roadway_property_change:\n"
+        "      facility:\n"
+        "        nodes: {model_node_id: [1001], ignore_missing: true}\n"
+        "      property_changes:\n"
+        "        drive_node: {set: 0}"
     )
     (card_dir / "project_B.yml").write_text(b_yaml)
 

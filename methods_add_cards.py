@@ -54,7 +54,7 @@ def add_cards_to_registry(
                 # Validate and sync IDs for modifications/deletions 
                 for cat in ["roadway_property_change", "roadway_deletion"]:
                     if cat in change_dict:
-                        card, was_synced = _sync_modification_ids(change_dict[cat], global_id_map)
+                        was_synced = _sync_modification_ids(change_dict[cat], global_id_map)
                         card_modified = card_modified or was_synced
 
         if card_modified and write_to_disk:
@@ -93,19 +93,20 @@ def _process_addition(category, change_index, out_df, card, nodes_in_use, links_
 
 def _sync_modification_ids(change_content, global_id_map):
     """
-    Updates IDs within modification or deletion dictionaries based on global reassignments.
+    Updates IDs within modification or deletion dictionaries.
+    Handles flat (deletion) and nested (property_change) structures.
     """
     was_synced = False
     
-    # Sync Link IDs in modifications/deletions
-    if "links" in change_content:
-        # Check if it's a list (Add New Roadway style) or dict (Roadway Deletion style)
-        links = change_content["links"]
+    # Check both the top level (deletion) and inside 'facility' (property change)
+    target = change_content.get("facility", change_content)
+
+    # Sync Link IDs
+    if "links" in target:
+        links = target["links"]
         link_list = links if isinstance(links, list) else [links]
-        
         for link in link_list:
             if "model_link_id" in link:
-                # Handle single ID or list of IDs (common in deletions)
                 ids = link["model_link_id"]
                 if isinstance(ids, list):
                     for i, lid in enumerate(ids):
@@ -116,14 +117,19 @@ def _sync_modification_ids(change_content, global_id_map):
                     link["model_link_id"] = global_id_map["links"][ids]
                     was_synced = True
 
-    # Sync Node IDs similarly
-    if "nodes" in change_content:
-        nodes = change_content["nodes"]
+    # Sync Node IDs
+    if "nodes" in target:
+        nodes = target["nodes"]
         node_list = nodes if isinstance(nodes, list) else [nodes]
         for node in node_list:
             if "model_node_id" in node:
                 nid = node["model_node_id"]
-                if nid in global_id_map["nodes"]:
+                if isinstance(nid, list): # Property changes often use list of IDs
+                    for i, old_id in enumerate(nid):
+                        if old_id in global_id_map["nodes"]:
+                            nid[i] = global_id_map["nodes"][old_id]
+                            was_synced = True
+                elif nid in global_id_map["nodes"]:
                     node["model_node_id"] = global_id_map["nodes"][nid]
                     was_synced = True
 

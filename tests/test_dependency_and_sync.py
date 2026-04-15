@@ -1,8 +1,14 @@
 import os
+import sys
+import inspect
 import pytest
 import pandas as pd
 from pathlib import Path
 from update_registry import update_registry
+
+c_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+p_dir = os.path.dirname(c_dir)
+sys.path.insert(0, p_dir)
 
 @pytest.mark.ci
 @pytest.mark.update_registry

@@ -135,15 +135,32 @@ def _apply_global_id_map(card, id_map):
     updated = False
     for change in card.changes:
         for cat, content in change.items():
-            # Check nodes and links across all categories
-            if isinstance(content, dict):
-                for node_type in ["nodes", "links"]:
-                    if node_type in content:
-                        for item in content[node_type]:
-                            id_key = "model_node_id" if node_type == "nodes" else "model_link_id"
+            if not isinstance(content, dict):
+                continue
+            
+            for node_type in ["nodes", "links"]:
+                if node_type not in content:
+                    continue
+                
+                id_key = "model_node_id" if node_type == "nodes" else "model_link_id"
+                items = content[node_type]
+                
+                # Case 1: List of objects (e.g., roadway_addition)
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, dict):
                             old_id = item.get(id_key)
                             if old_id in id_map[node_type]:
                                 item[id_key] = id_map[node_type][old_id]
+                                updated = True
+                
+                # Case 2: Dict of lists (e.g., roadway_deletion)
+                elif isinstance(items, dict):
+                    if id_key in items and isinstance(items[id_key], list):
+                        ids_to_check = items[id_key]
+                        for i, old_id in enumerate(ids_to_check):
+                            if old_id in id_map[node_type]:
+                                ids_to_check[i] = id_map[node_type][old_id]
                                 updated = True
     return card, updated
 

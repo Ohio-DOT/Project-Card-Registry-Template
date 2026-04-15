@@ -3,7 +3,8 @@ import sys
 import inspect
 import pytest
 import pandas as pd
-from pathlib import Path
+
+from projectcard import read_card
 
 c_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 p_dir = os.path.dirname(c_dir)

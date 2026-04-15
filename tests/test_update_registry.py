@@ -39,7 +39,7 @@ def test_update_registry(request):
         write_card_updates=False,
     )
 
-    # Alphabetical order: Project A gets 1001/1002/501; Project B gets 1003/1004/502
+    # Project A gets 1001/1002/501; Project B gets 1003/1004/502
     data = [
         ["node", 1001, "Project A"],
         ["node", 1002, "Project A"],

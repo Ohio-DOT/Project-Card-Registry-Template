@@ -73,32 +73,45 @@ def test_circular_dependency_error(tmp_path):
 @pytest.mark.dependency
 def test_inter_card_id_reconciliation(tmp_path):
     """
-    Test that if Project A's node is reassigned due to conflict, 
-    Project B (Modifying Project A's node) gets its ID updated automatically.
+    Test that if Project B's node is reassigned due to conflict with existing 
+    Project A (from project_AB folder), Project C (modifying Project B) 
+    gets its ID updated automatically.
     """
     card_dir = tmp_path / "projects"
     card_dir.mkdir()
     reg_file = tmp_path / "registry.csv"
     
-    # 1. Create a conflict in the registry: Node 1001 is already taken by Project Z
-    data = [["node", 1001, "Project Z"]]
+    # 1. Use Project A from project_AB as the existing project in the registry
+    # Copy its card to the temp directory so the Source of Truth logic doesn't prune it
+    existing_a_path = os.path.join(p_dir, "tests", "projects", "project_AB", "project_A.yml")
+    with open(existing_a_path, 'r') as f:
+        a_content = f.read()
+    (card_dir / "project_A.yml").write_text(a_content)
+
+    # 2. Populate registry: Project A already owns Nodes 1001 and 1002 
+    data = [
+        ["node", 1001, "Project A"],
+        ["node", 1002, "Project A"],
+        ["link", 501, "Project A"]
+    ]
     pd.DataFrame(data, columns=["type", "id", "project_added"]).to_csv(reg_file, index=False)
 
-    # 2. Project A adds Node 1001 (Conflict!) -> Should become 1002
-    a_yaml = (
-        "project: Project A\n"
+    # 3. Create Project B: Tries to add Node 1001 (Conflict!) -> Should become 1003 
+    b_yaml = (
+        "project: Project B\n"
         "dependencies: {prerequisites: []}\n"
         "changes:\n"
         "  - roadway_addition:\n"
         "      nodes: [{X: 1, Y: 1, model_node_id: 1001}]\n"
         "      links: []"
     )
-    (card_dir / "project_A.yml").write_text(a_yaml)
+    (card_dir / "project_B.yml").write_text(b_yaml)
 
-    # 3. Project B modifies Node 1001
-    b_yaml = (
-        "project: Project B\n"
-        "dependencies: {prerequisites: ['Project A']}\n"
+    # 4. Create Project C: Modifies Node 1001 (intended for Project B)
+    # Uses official 'roadway_property_change' schema with nested 'facility' selection
+    c_yaml = (
+        "project: Project C\n"
+        "dependencies: {prerequisites: ['Project B']}\n"
         "changes:\n"
         "  - roadway_property_change:\n"
         "      facility:\n"
@@ -106,9 +119,9 @@ def test_inter_card_id_reconciliation(tmp_path):
         "      property_changes:\n"
         "        drive_node: {set: 0}"
     )
-    (card_dir / "project_B.yml").write_text(b_yaml)
+    (card_dir / "project_C.yml").write_text(c_yaml)
 
-    # 4. Run Update (Allowing write to disk to check B's updated YAML)
+    # 5. Run Update (write_card_updates=True to verify Project C's file changes)
     update_registry(
         config_file="registry_config.yml",
         input_reg_file=str(reg_file),
@@ -117,14 +130,15 @@ def test_inter_card_id_reconciliation(tmp_path):
         write_card_updates=True
     )
 
-    # 5. Assertions
-    # Check Registry: Project A should have node 1002
+    # 6. Assertions
     df = pd.read_csv(reg_file)
-    assert df[(df['project_added'] == "Project A") & (df['type'] == "node")]['id'].iloc[0] == 1002
-
-    # Check Project B's File: It should now target Node 1002, NOT 1001
-    from projectcard import read_card
-    updated_b = read_card(str(card_dir / "project_B.yml"))
-    target_node_id = updated_b.changes[0]['roadway_modification']['nodes'][0]['model_node_id']
     
-    assert target_node_id == 1002
+    # Project B's node should have been bumped to 1003 because 1001/1002 were taken by A [cite: 81]
+    b_node_id = df[(df['project_added'] == "Project B") & (df['type'] == "node")]['id'].iloc[0]
+    assert b_node_id == 1003
+
+    # Check Project C's YAML: It should now target Node 1003, NOT 1001
+    updated_c = read_card(str(card_dir / "project_C.yml"))
+    target_ids = updated_c.changes[0]['roadway_property_change']['facility']['nodes']['model_node_id']
+    
+    assert 1003 in target_ids

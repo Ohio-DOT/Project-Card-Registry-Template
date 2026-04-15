@@ -11,6 +11,9 @@ CONFIG_FILE = "registry_config.yml"
 
 def sort_projects_by_dependency(card_file_list):
     """Sorts project cards based on dependencies and detects cycles."""
+    # Sort alphabetically first to ensure deterministic tie-breaking
+    card_file_list.sort(key=lambda x: x[0].project)
+
     project_map = {card.project: (card, filename) for card, filename in card_file_list}
     ts = TopologicalSorter()
 
